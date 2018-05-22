@@ -13,7 +13,7 @@ int main(int argc, char *argv[])
     SFD* detector = new SFD("/media/lirui/Personal/DeepLearning/FaceDetect/SFD/models/VGGNet/WIDER_FACE/SFD_trained");
 
     cv::VideoCapture capture;
-    capture.open("/media/lirui/Program/Datas/Videos/2018-04-10-3member.mp4");
+    capture.open("/media/lirui/Program/Datas/Videos/Face201701052.mp4");
     if (!capture.isOpened())
     {
        std::cout << "视频读取失败！" << std::endl;
@@ -32,14 +32,15 @@ int main(int argc, char *argv[])
             break;
 
         map<string, vector<float> > score;
-        start = std::clock();
+        struct timeval st_tm, end_tm;
+        static float total_time = 0.0;
+        gettimeofday(&st_tm, NULL);
 
         vector<Rect>  label_objs;
         detector->detect(imgFrame, label_objs);  //目标检测,同时保存每个框的置信度
-
-        end = std::clock();
-        total_time = (double)(end -start) / CLOCKS_PER_SEC;
-        std::cout << "time: " << total_time << "s" <<std::endl;
+        gettimeofday(&end_tm, NULL);
+        total_time = calTime( st_tm, end_tm);
+        std::cout << "detect time: " << total_time << std::endl;
 
 
         for(vector<Rect>::iterator it=label_objs.begin();it!=label_objs.end();it++){
