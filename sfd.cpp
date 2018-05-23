@@ -7,12 +7,12 @@ using namespace cv;
 #define DEFAULT_HEIGHT 1080
 #define DEFAULT_WIDTH 1920
 
-SFD::SFD(const std::string &modelsPath):
-    m_fConfThresh(0.8),
-    img_max_side(480)
+SFD::SFD(const std::string &modelsPath, float confThresh, int maxSide):
+    m_fConfThresh(confThresh),
+    img_max_side(maxSide)
 {
-    string modelName = "deploy.prototxt";
-    string weightName = "SFD.caffemodel";
+    string modelName = "SFD_deploy.prototxt";
+    string weightName = "SFD_weights.caffemodel";
     if( modelsPath[modelsPath.size() - 1 ] != '/' )
     {
         initNet(modelsPath + "/" + modelName, modelsPath + "/" + weightName);
@@ -22,9 +22,9 @@ SFD::SFD(const std::string &modelsPath):
 
 }
 
-SFD::SFD(const std::string modelFile, const std::string weightFile):
-    m_fConfThresh(0.8),
-    img_max_side(480)
+SFD::SFD(const std::string modelFile, const std::string weightFile, float confThresh, int maxSide):
+    m_fConfThresh(confThresh),
+    img_max_side(maxSide)
 {
     initNet(modelFile, weightFile);
 }
@@ -58,34 +58,55 @@ void SFD::initNet(const std::string model_file, const std::string weights_file)
 
 void SFD::detect(const cv::Mat& img, std::vector<cv::Rect >& rects)
 {
+#ifdef DEBUG_TIME
     struct timeval st_tm, end_tm;
     static float total_time = 0.0;
     gettimeofday(&st_tm, NULL);
+#endif
+    forwardNet(img);
 
-    //resize img and normalize
-    Mat normalizedImg;
-    preprocess(img, normalizedImg);
-
-    gettimeofday(&end_tm, NULL);
-    total_time = calTime( st_tm, end_tm);
-    std::cerr << "process time: " << total_time << std::endl;
-
-    std::vector<cv::Mat> input_channels;
-    wrapInputLayer(&input_channels);
-
-    gettimeofday(&end_tm, NULL);
-    total_time = calTime( st_tm, end_tm);
-    std::cerr << "wrap time: " << total_time << std::endl;
-
-    // set data to net and do forward
-    split(normalizedImg, input_channels);
-    net_->Forward();
-
+#ifdef DEBUG_TIME
     gettimeofday(&end_tm, NULL);
     total_time = calTime( st_tm, end_tm);
     std::cerr << "forward time: " << total_time << std::endl;
+#endif
 
+    getDetectResult(&rects, NULL);
 
+#ifdef DEBUG_TIME
+    gettimeofday(&end_tm, NULL);
+    total_time = calTime( st_tm, end_tm);
+    std::cerr << "total time: " << total_time << std::endl;
+#endif
+}
+
+void SFD::detect(const cv::Mat& img, std::vector<cv::Rect >& rects, std::vector<float>& confidences)
+{
+#ifdef DEBUG_TIME
+    struct timeval st_tm, end_tm;
+    static float total_time = 0.0;
+    gettimeofday(&st_tm, NULL);
+#endif
+
+    forwardNet(img);
+
+#ifdef DEBUG_TIME
+    gettimeofday(&end_tm, NULL);
+    total_time = calTime( st_tm, end_tm);
+    std::cerr << "forward time: " << total_time << std::endl;
+#endif
+
+    getDetectResult(&rects, &confidences );
+
+#ifdef DEBUG_TIME
+    gettimeofday(&end_tm, NULL);
+    total_time = calTime( st_tm, end_tm);
+    std::cerr << "total time: " << total_time << std::endl;
+#endif
+}
+
+void SFD::getDetectResult(std::vector<Rect>*rects, std::vector<float>*confidences)
+{
     /* Copy the output layer to a std::vector */
     Blob<float>* result_blob = net_->output_blobs()[0];
     const float* result = result_blob->cpu_data();
@@ -96,19 +117,33 @@ void SFD::detect(const cv::Mat& img, std::vector<cv::Rect >& rects)
         if(result[0]==-1 || result[2]< m_fConfThresh)
             continue;
 
-        int x1 = static_cast<int>(result[3] * img.cols);
-        int y1 = static_cast<int>(result[4] * img.rows);
-        int x2 = static_cast<int>(result[5] * img.cols);
-        int y2 = static_cast<int>(result[6] * img.rows);
+        int x1 = static_cast<int>(result[3] * DEFAULT_WIDTH);
+        int y1 = static_cast<int>(result[4] * DEFAULT_HEIGHT);
+        int x2 = static_cast<int>(result[5] * DEFAULT_WIDTH);
+        int y2 = static_cast<int>(result[6] * DEFAULT_HEIGHT);
         Rect rect(x1, y1, x2-x1, y2-y1);
-        rects.push_back(rect);
+        rects->push_back(rect);
+        if(confidences)
+            confidences->push_back(result[2]);
 
     }
-    gettimeofday(&end_tm, NULL);
-    total_time = calTime( st_tm, end_tm);
-    std::cerr << "total time: " << total_time << std::endl;
 }
 
+void SFD::forwardNet(const cv::Mat& img)
+{
+
+    //resize img and normalize
+    Mat normalizedImg;
+    preprocess(img, normalizedImg);
+
+    std::vector<cv::Mat> input_channels;
+    wrapInputLayer(&input_channels);
+
+    // set data to net and do forward
+    split(normalizedImg, input_channels);
+    net_->Forward();
+
+}
 
 /* Wrap the input layer of the network in separate cv::Mat objects
  * (one per channel). This way we save one memcpy operation and we
@@ -117,20 +152,20 @@ void SFD::detect(const cv::Mat& img, std::vector<cv::Rect >& rects)
  * layer. */
 void SFD::wrapInputLayer(std::vector<cv::Mat>* input_channels)
 {
-    Blob<float>* input_layer = net_->input_blobs()[0];
-
+    caffe::Blob<float>* input_layer = net_->input_blobs()[0];
     float* input_data = input_layer->mutable_cpu_data();
-    for (int i = 0; i < input_layer->channels(); ++i) {
+    for (int i = 0; i < input_layer->channels(); ++i)
+    {
         cv::Mat channel(input_geometry_.height, input_geometry_.width, CV_32FC1, input_data);
         input_channels->push_back(channel);
         input_data += input_geometry_.width * input_geometry_.height;
     }
 }
 
-void SFD::preprocess(const Mat &img, Mat& processedImg) {
+void SFD::preprocess(const cv::Mat &img, cv::Mat& processedImg) {
 
     //计算图像缩放尺度
-    Mat sample_resized;
+    cv::Mat sample_resized;
     cv::resize(img, sample_resized, input_geometry_, 0, 0);
     sample_resized.convertTo(sample_resized, CV_32FC3);
     cv::subtract(sample_resized, mean_, processedImg);
