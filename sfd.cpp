@@ -9,7 +9,7 @@ using namespace cv;
 
 SFD::SFD(const std::string &modelsPath, float confThresh, int maxSide):
     m_fConfThresh(confThresh),
-    img_max_side(maxSide)
+    m_maxInSide(maxSide)
 {
     string modelName = "SFD_deploy.prototxt";
     string weightName = "SFD_weights.caffemodel";
@@ -22,15 +22,15 @@ SFD::SFD(const std::string &modelsPath, float confThresh, int maxSide):
 
 }
 
-SFD::SFD(const std::string modelFile, const std::string weightFile, float confThresh, int maxSide):
+SFD::SFD(const string modelFile, const string weightFile, float confThresh, int maxSide):
     m_fConfThresh(confThresh),
-    img_max_side(maxSide)
+    m_maxInSide(maxSide)
 {
     initNet(modelFile, weightFile);
 }
 
 
-void SFD::initNet(const std::string model_file, const std::string weights_file)
+void SFD::initNet(const string model_file, const string weights_file)
 {
 #ifndef CPU_ONLY
     Caffe::set_mode(Caffe::GPU);
@@ -39,20 +39,20 @@ void SFD::initNet(const std::string model_file, const std::string weights_file)
 #endif
 
     /* Load the network. */
-    net_.reset(new Net<float>(model_file, TEST));
-    net_->CopyTrainedLayersFrom(weights_file);
+    m_ptrNet.reset(new Net<float>(model_file, TEST));
+    m_ptrNet->CopyTrainedLayersFrom(weights_file);
 
-    CHECK_EQ(net_->num_inputs(), 1) << "Network should have exactly one input.";
-    CHECK_EQ(net_->num_outputs(), 1) << "Network should have exactly one output.";
+    CHECK_EQ(m_ptrNet->num_inputs(), 1) << "Network should have exactly one input.";
+    CHECK_EQ(m_ptrNet->num_outputs(), 1) << "Network should have exactly one output.";
 
-    double im_shrink = double(img_max_side) / DEFAULT_WIDTH;
-    input_geometry_ = Size(DEFAULT_WIDTH * im_shrink, DEFAULT_HEIGHT * im_shrink);
+    double im_shrink = double(m_maxInSide) / DEFAULT_WIDTH;
+    m_inputGeometry = Size(DEFAULT_WIDTH * im_shrink, DEFAULT_HEIGHT * im_shrink);
 
-    mean_ = Mat(input_geometry_, CV_32FC3, cv::Scalar(104,117,123) );
-    num_channels_ = 3;
+    m_meanImg = Mat(m_inputGeometry, CV_32FC3, cv::Scalar(104,117,123) );
+    m_numChannels = 3;
 }
 
-void SFD::detect(const cv::Mat& img, std::vector<cv::Rect >& rects)
+void SFD::detect(const Mat& img, vector<Rect >& rects)
 {
 #ifdef DEBUG_TIME
     struct timeval st_tm, end_tm;
@@ -67,7 +67,8 @@ void SFD::detect(const cv::Mat& img, std::vector<cv::Rect >& rects)
     std::cerr << "forward time: " << total_time << std::endl;
 #endif
 
-    getDetectResult(&rects, NULL);
+    vector<vector<Rect> > rectsBatch(1, rects);
+    getDetectResult(&rectsBatch, NULL);
 
 #ifdef DEBUG_TIME
     gettimeofday(&end_tm, NULL);
@@ -76,7 +77,7 @@ void SFD::detect(const cv::Mat& img, std::vector<cv::Rect >& rects)
 #endif
 }
 
-void SFD::detect(const cv::Mat& img, std::vector<cv::Rect >& rects, std::vector<float>& confidences)
+void SFD::detect(const Mat& img, vector<Rect>& rects, vector<float>& confidences)
 {
 #ifdef DEBUG_TIME
     struct timeval st_tm, end_tm;
@@ -84,7 +85,8 @@ void SFD::detect(const cv::Mat& img, std::vector<cv::Rect >& rects, std::vector<
     gettimeofday(&st_tm, NULL);
 #endif
 
-    forwardNet(img);
+    vector<Mat> imgs(1, img);
+    forwardNet(imgs);
 
 #ifdef DEBUG_TIME
     gettimeofday(&end_tm, NULL);
@@ -92,7 +94,9 @@ void SFD::detect(const cv::Mat& img, std::vector<cv::Rect >& rects, std::vector<
     std::cerr << "forward time: " << total_time << std::endl;
 #endif
 
-    getDetectResult(&rects, &confidences );
+    vector<vector<Rect> > rectsBatch(1, rects);
+    vector<vector<float> > confidencesBatch(1, confidences);
+    getDetectResult(&rectsBatch, &confidencesBatch );
 
 #ifdef DEBUG_TIME
     gettimeofday(&end_tm, NULL);
@@ -101,14 +105,14 @@ void SFD::detect(const cv::Mat& img, std::vector<cv::Rect >& rects, std::vector<
 #endif
 }
 
-void SFD::detectBatch(const std::vector<cv::Mat>& imgs, std::vector< std::vector<cv::Rect >> & rects)
+void SFD::detect(const std::vector<cv::Mat>& imgBatch, std::vector<std::vector<cv::Rect> >& rectsBatch)
 {
 #ifdef DEBUG_TIME
     struct timeval st_tm, end_tm;
     static float total_time = 0.0;
     gettimeofday(&st_tm, NULL);
 #endif
-    forwardNetBatch(imgs);
+    forwardNet(imgBatch);
 
 #ifdef DEBUG_TIME
     gettimeofday(&end_tm, NULL);
@@ -116,65 +120,65 @@ void SFD::detectBatch(const std::vector<cv::Mat>& imgs, std::vector< std::vector
     std::cerr << "forward time: " << total_time << std::endl;
 #endif
 
-    getDetectResultBatch(&rects, NULL);
-
-#ifdef DEBUG_TIME
-    gettimeofday(&end_tm, NULL);
-    total_time = calTime( st_tm, end_tm);
-    std::cerr << "total time: " << total_time << std::endl;
-#endif
-}
-
-void SFD::getDetectResult(std::vector<Rect>*rects, std::vector<float>*confidences)
-{
-    /* Copy the output layer to a std::vector */
-    Blob<float>* result_blob = net_->output_blobs()[0];
-    const float* result = result_blob->cpu_data();
-    const int num_det = result_blob->height();
-
-    for(int i=0; i<num_det; ++i, result +=7 )
+    // 初始化每个img对应的输出
+    for(int img_id = 0; img_id < imgBatch.size(); ++img_id)
     {
-        int img_id = result[0];
-        int label = result[1];
-        float score = result[2];
-        if(result[0]==-1 || result[2]< m_fConfThresh)
-            continue;
-
-        int x1 = static_cast<int>(result[3] * DEFAULT_WIDTH);
-        int y1 = static_cast<int>(result[4] * DEFAULT_HEIGHT);
-        int x2 = static_cast<int>(result[5] * DEFAULT_WIDTH);
-        int y2 = static_cast<int>(result[6] * DEFAULT_HEIGHT);
-        Rect rect(x1, y1, x2-x1, y2-y1);
-        rects->push_back(rect);
-        if(confidences)
-            confidences->push_back(result[2]);
-
+        vector<Rect> faces_per_img;
+        rectsBatch.push_back(faces_per_img);
     }
+
+    getDetectResult(&rectsBatch, NULL);
+
+#ifdef DEBUG_TIME
+    gettimeofday(&end_tm, NULL);
+    total_time = calTime( st_tm, end_tm);
+    std::cerr << "total time: " << total_time << std::endl;
+#endif
 }
 
-void SFD::getDetectResultBatch(std::vector<std::vector<Rect> > *rects, std::vector<std::vector<float> > *confidences)
+
+void SFD::detect(const std::vector<cv::Mat>& imgBatch, std::vector<std::vector<cv::Rect> >& rectsBatch, std::vector<std::vector<float> >& confidencesBatch)
+{
+#ifdef DEBUG_TIME
+    struct timeval st_tm, end_tm;
+    static float total_time = 0.0;
+    gettimeofday(&st_tm, NULL);
+#endif
+    forwardNet(imgBatch);
+
+#ifdef DEBUG_TIME
+    gettimeofday(&end_tm, NULL);
+    total_time = calTime( st_tm, end_tm);
+    std::cerr << "forward time: " << total_time << std::endl;
+#endif
+
+    // 初始化每个img对应的输出
+    for(int img_id = 0; img_id < imgBatch.size(); ++img_id)
+    {
+        vector<Rect> faces_per_img;
+        rectsBatch.push_back(faces_per_img);
+
+        vector<float> confidence_per_img;
+        confidencesBatch.push_back(confidence_per_img);
+    }
+
+    getDetectResult(&rectsBatch, &confidencesBatch);
+
+#ifdef DEBUG_TIME
+    gettimeofday(&end_tm, NULL);
+    total_time = calTime( st_tm, end_tm);
+    std::cerr << "total time: " << total_time << std::endl;
+#endif
+}
+
+void SFD::getDetectResult(vector<vector<Rect> > *rects, vector<vector<float> > *confidences)
 {
 
     /* Copy the output layer to a std::vector */
-
-    int batch = net_->input_blobs()[0]->num();
-    int size = net_->output_blobs().size();
-    Blob<float>* output_layer = net_->output_blobs()[0];
+    Blob<float>* output_layer = m_ptrNet->output_blobs()[0];
     const float* result = output_layer->cpu_data();
     const int num_det = output_layer->height();
 
-    // 初始化每个img对应的输出
-    for(int img_id = 0; img_id < batch; ++img_id)
-    {
-        vector<Rect> faces_per_img;
-        rects->push_back(faces_per_img);
-        if(confidences)
-        {
-            vector<float> confidence_per_img;
-            confidences->push_back(confidence_per_img);
-        }
-
-    }
 
     for(int i=0; i<num_det; ++i, result +=7 )
     {
@@ -195,32 +199,12 @@ void SFD::getDetectResultBatch(std::vector<std::vector<Rect> > *rects, std::vect
 
 }
 
-void SFD::forwardNet(const cv::Mat& img)
+void SFD::forwardNet(const std::vector<cv::Mat>& imgs)
 {
 
-    Blob<float>* input_layer = net_->input_blobs()[0];
-    input_layer->Reshape(1, 3, input_geometry_.height, input_geometry_.width);
-    net_->Reshape();
-
-    //resize img and normalize
-    Mat normalizedImg;
-    preprocess(img, normalizedImg);
-
-    std::vector<cv::Mat> input_channels;
-    wrapInputLayer(&input_channels);
-
-    // set data to net and do forward
-    split(normalizedImg, input_channels);
-    net_->Forward();
-
-}
-
-void SFD::forwardNetBatch(const std::vector<cv::Mat>& imgs)
-{
-
-    Blob<float>* input_layer = net_->input_blobs()[0];
-    input_layer->Reshape(imgs.size(), num_channels_, input_geometry_.height, input_geometry_.width);
-    net_->Reshape();
+    Blob<float>* input_layer = m_ptrNet->input_blobs()[0];
+    input_layer->Reshape(imgs.size(), m_numChannels, m_inputGeometry.height, m_inputGeometry.width);
+    m_ptrNet->Reshape();
 
     std::vector<cv::Mat> input_data;
     wrapInputLayer(&input_data);
@@ -233,10 +217,10 @@ void SFD::forwardNetBatch(const std::vector<cv::Mat>& imgs)
         // set data to net and do forward
 
         std::vector<cv::Mat>tmp_channls(3);
-        tmp_channls.assign(input_data.begin() + i*num_channels_, input_data.begin() + (i + 1)*num_channels_);
+        tmp_channls.assign(input_data.begin() + i*m_numChannels, input_data.begin() + (i + 1)*m_numChannels);
         split(normalizedImg, tmp_channls);
     }
-    net_->Forward();
+    m_ptrNet->Forward();
 
 }
 
@@ -247,15 +231,15 @@ void SFD::forwardNetBatch(const std::vector<cv::Mat>& imgs)
  * layer. */
 void SFD::wrapInputLayer(std::vector<cv::Mat>* input_channels)
 {
-    caffe::Blob<float>* input_layer = net_->input_blobs()[0];
+    caffe::Blob<float>* input_layer = m_ptrNet->input_blobs()[0];
     float* input_data = input_layer->mutable_cpu_data();
     for(int j = 0; j < input_layer->num(); j++)
     {
         for (int i = 0; i < input_layer->channels(); ++i)
         {
-            cv::Mat channel(input_geometry_.height, input_geometry_.width, CV_32FC1, input_data);
+            cv::Mat channel(m_inputGeometry.height, m_inputGeometry.width, CV_32FC1, input_data);
             input_channels->push_back(channel);
-            input_data += input_geometry_.width * input_geometry_.height;
+            input_data += m_inputGeometry.width * m_inputGeometry.height;
         }
     }
 }
@@ -264,8 +248,8 @@ void SFD::preprocess(const cv::Mat &img, cv::Mat& processedImg) {
 
     //计算图像缩放尺度
     cv::Mat sample_resized;
-    cv::resize(img, sample_resized, input_geometry_, 0, 0);
+    cv::resize(img, sample_resized, m_inputGeometry, 0, 0);
     sample_resized.convertTo(sample_resized, CV_32FC3);
-    cv::subtract(sample_resized, mean_, processedImg);
+    cv::subtract(sample_resized, m_meanImg, processedImg);
 
 }

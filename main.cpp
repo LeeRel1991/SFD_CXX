@@ -97,15 +97,23 @@ int main(int argc, char *argv[])
        std::cout << "视频读取失败！" << std::endl;
     }
 
+    //cv::VideoCapture cap2;
+    //cap2.open("/media/lirui/Program/Datas/Videos/face.mp4");
+    //if(!cap2.isOpened())
+    //    std::cout << "视频读取失败！" << std::endl;
 
-    Mat imgFrame;
+    Mat imgFrame, imgFrame2;
     int ii=0;
     while(true)
     {
 
         capture >> imgFrame;
+        //cap2 >> imgFrame2;
         if (imgFrame.empty())
             break;
+
+        //if(imgFrame2.empty())
+        //    break;
 
 #ifdef DEBUG_TIME
         struct timeval st_tm, end_tm;
@@ -113,15 +121,15 @@ int main(int argc, char *argv[])
         gettimeofday(&st_tm, NULL);
 #endif
 
-        vector<vector<Rect> > label_objs;
-        vector<vector<float> >scores;
+        vector<vector<Rect> > facesBatch;
+        vector<vector<float> > scoresBatch;
         vector<Mat> imgBatch;
-        for(int i=0; i<5;i++)
+        //imgBatch.push_back(imgFrame);
+        //imgBatch.push_back(imgFrame2);
+        for(int i=0; i<2; i++)
             imgBatch.push_back(imgFrame);
 
-//        vector<Rect> objs;
-//        detector->detect(imgFrame, objs);  //目标检测,同时保存每个框的置信度
-        detector->detectBatch(imgBatch, label_objs);  //目标检测,同时保存每个框的置信度
+        detector->detect(imgBatch, facesBatch, scoresBatch);  //目标检测,同时保存每个框的置信度
 
 #ifdef DEBUG_TIME
         gettimeofday(&end_tm, NULL);
@@ -129,20 +137,21 @@ int main(int argc, char *argv[])
         std::cout << "detect time: " << total_time << std::endl;
 #endif
 
-        for(int img_id = 0; img_id < imgBatch.size(); ++img_id)
+        for(int imgID = 0; imgID < imgBatch.size(); ++imgID)
         {
-            vector<Rect> curr_objs = label_objs[img_id];
-//            vector<float> curr_scores = scores[img_id];
-            for(int i=0; i<curr_objs.size(); i++){
-                rectangle(imgFrame, curr_objs[i], Scalar(0,0,255),2);   //画出矩形框
-//                stringstream stream;
-//                stream << curr_scores[i];
-//                putText(imgBatch[img_id], stream.str(), Point(curr_objs[i].x, curr_objs[i].y), CV_FONT_HERSHEY_SIMPLEX,0.5,Scalar(0,255,0)); //标记 类别：置信度
+            vector<Rect> currFaces = facesBatch[imgID];
+            vector<float> currScores = scoresBatch[imgID];
+            for(int i=0; i<currFaces.size(); i++)
+            {
+                rectangle(imgBatch[imgID], currFaces[i], Scalar(0,0,255),2);   //画出矩形框
+                stringstream stream;
+                stream << currScores[i];
+                putText(imgBatch[imgID], stream.str(), Point(currFaces[i].x, currFaces[i].y), CV_FONT_HERSHEY_SIMPLEX,0.5,Scalar(0,255,0)); //标记 类别：置信度
 
             }
             stringstream stream;
-            stream << "img_" << img_id;
-            imshow(stream.str(), imgBatch[img_id]);
+            stream << "img_" << imgID;
+            imshow(stream.str(), imgBatch[imgID]);
 
         }
 
