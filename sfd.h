@@ -53,13 +53,24 @@ public:
     void detect(const cv::Mat& img, std::vector<cv::Rect >& rects, std::vector<float>& confidences);
 
 
+    /**
+     * @brief detectBatch 批检测人脸
+     * @param img input picture on which to find faces
+     * @param rects output, boundingbox list of all located faces
+     */
+    void detectBatch(const std::vector<cv::Mat>& imgs, std::vector< std::vector<cv::Rect >> & rects);
+
 private:
 
     void initNet(const std::string model_file, const std::string weights_file);
 
     void forwardNet(const cv::Mat& img);
 
+    void forwardNetBatch(const std::vector<cv::Mat>& imgs);
+
     void getDetectResult(std::vector<cv::Rect >*rects, std::vector<float>* confidences);
+
+    void getDetectResultBatch(std::vector<std::vector<cv::Rect> >*rects, std::vector<std::vector<float> >* confidences);
 
     void wrapInputLayer(std::vector<cv::Mat>* input_channels);
 

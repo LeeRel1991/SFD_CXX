@@ -7,6 +7,16 @@ using namespace caffe;
 using namespace cv;
 using namespace std;
 
+
+void sigleVideo()
+{}
+
+// batch detect. conduct detection on several images once a time
+void multiVideo()
+{
+
+}
+
 int main(int argc, char *argv[])
 {
     QCoreApplication a(argc, argv);   
@@ -103,9 +113,15 @@ int main(int argc, char *argv[])
         gettimeofday(&st_tm, NULL);
 #endif
 
-        vector<Rect>  label_objs;
-        vector<float> scores;
-        detector->detect(imgFrame, label_objs, scores);  //目标检测,同时保存每个框的置信度
+        vector<vector<Rect> > label_objs;
+        vector<vector<float> >scores;
+        vector<Mat> imgBatch;
+        for(int i=0; i<5;i++)
+            imgBatch.push_back(imgFrame);
+
+//        vector<Rect> objs;
+//        detector->detect(imgFrame, objs);  //目标检测,同时保存每个框的置信度
+        detector->detectBatch(imgBatch, label_objs);  //目标检测,同时保存每个框的置信度
 
 #ifdef DEBUG_TIME
         gettimeofday(&end_tm, NULL);
@@ -113,15 +129,23 @@ int main(int argc, char *argv[])
         std::cout << "detect time: " << total_time << std::endl;
 #endif
 
-        for(int i=0; i<label_objs.size(); i++){
-            rectangle(imgFrame, label_objs[i], Scalar(0,0,255),2);   //画出矩形框
+        for(int img_id = 0; img_id < imgBatch.size(); ++img_id)
+        {
+            vector<Rect> curr_objs = label_objs[img_id];
+//            vector<float> curr_scores = scores[img_id];
+            for(int i=0; i<curr_objs.size(); i++){
+                rectangle(imgFrame, curr_objs[i], Scalar(0,0,255),2);   //画出矩形框
+//                stringstream stream;
+//                stream << curr_scores[i];
+//                putText(imgBatch[img_id], stream.str(), Point(curr_objs[i].x, curr_objs[i].y), CV_FONT_HERSHEY_SIMPLEX,0.5,Scalar(0,255,0)); //标记 类别：置信度
+
+            }
             stringstream stream;
-            stream << scores[i];
-            putText(imgFrame, stream.str(), Point(label_objs[i].x, label_objs[i].y), CV_FONT_HERSHEY_SIMPLEX,0.5,Scalar(0,255,0)); //标记 类别：置信度
+            stream << "img_" << img_id;
+            imshow(stream.str(), imgBatch[img_id]);
 
         }
 
-        imshow("1", imgFrame);
         waitKey(1);
 
         ii++;
