@@ -23,7 +23,9 @@ http://gitlab.bmi/VisionAI/soft/caffe/tree/bmi-beta
 * 配置环境
 
 INCLUDEPATH+=$CAFFE_CODE_DIR/include
+
 LIBS += -L$CAFFE_CODE_DIR/build/lib
+
 LIBS+=-lcaffe  -lcurand -lcudart -lcublas \
         -lglog -lgflags -lboost_system
 
