@@ -7,28 +7,38 @@ using namespace cv;
 #define DEFAULT_HEIGHT 1080
 #define DEFAULT_WIDTH 1920
 
-SFD::SFD(const std::string &modelsPath, float confThresh, int maxSide):
-    m_fConfThresh(confThresh),
-    m_maxInSide(maxSide)
+cv::Scalar SFD::m_meanVector = cv::Scalar(104,117,123);
+
+
+
+void SFD::init(const string &modelsPath, const Size imgSize, const int batchSize, const float confThresh)
 {
+
+    m_batchSize = batchSize;
+    m_inputGeometry = imgSize;
+    m_fConfThresh = confThresh;
+
     string modelName = "SFD_deploy.prototxt";
     string weightName = "SFD_weights.caffemodel";
+
     if( modelsPath[modelsPath.size() - 1 ] != '/' )
     {
         initNet(modelsPath + "/" + modelName, modelsPath + "/" + weightName);
     }
     else
         initNet(modelsPath + modelName, modelsPath + weightName);
-
 }
 
-SFD::SFD(const string modelFile, const string weightFile, float confThresh, int maxSide):
-    m_fConfThresh(confThresh),
-    m_maxInSide(maxSide)
+
+void SFD::init(const string modelFile, const string weightFile,
+               const Size imgSize, const int batchSize, const float confThresh)
 {
+
+    m_batchSize = batchSize;
+    m_inputGeometry = imgSize;
+    m_fConfThresh = confThresh;
     initNet(modelFile, weightFile);
 }
-
 
 void SFD::initNet(const string model_file, const string weights_file)
 {
@@ -45,11 +55,11 @@ void SFD::initNet(const string model_file, const string weights_file)
     CHECK_EQ(m_ptrNet->num_inputs(), 1) << "Network should have exactly one input.";
     CHECK_EQ(m_ptrNet->num_outputs(), 1) << "Network should have exactly one output.";
 
-    double im_shrink = double(m_maxInSide) / DEFAULT_WIDTH;
-    m_inputGeometry = Size(DEFAULT_WIDTH * im_shrink, DEFAULT_HEIGHT * im_shrink);
-
-    m_meanImg = Mat(m_inputGeometry, CV_32FC3, cv::Scalar(104,117,123) );
     m_numChannels = 3;
+
+    Blob<float>* input_layer = m_ptrNet->input_blobs()[0];
+    input_layer->Reshape(m_batchSize, m_numChannels, m_inputGeometry.height, m_inputGeometry.width);
+    m_ptrNet->Reshape();
 }
 
 void SFD::detect(const Mat& img, vector<Rect >& rects)
@@ -186,10 +196,10 @@ void SFD::getDetectResult(vector<vector<Rect> > *rects, vector<vector<float> > *
         if(result[0]==-1 || result[2]< m_fConfThresh)
             continue;
 
-        int x1 = static_cast<int>(result[3] * DEFAULT_WIDTH);
-        int y1 = static_cast<int>(result[4] * DEFAULT_HEIGHT);
-        int x2 = static_cast<int>(result[5] * DEFAULT_WIDTH);
-        int y2 = static_cast<int>(result[6] * DEFAULT_HEIGHT);
+        int x1 = static_cast<int>(result[3] * m_inputGeometry.width);
+        int y1 = static_cast<int>(result[4] * m_inputGeometry.height);
+        int x2 = static_cast<int>(result[5] * m_inputGeometry.width);
+        int y2 = static_cast<int>(result[6] * m_inputGeometry.height);
         Rect rect(x1, y1, x2-x1, y2-y1);
         (*rects)[img_id].push_back(rect);
         if(confidences)
@@ -202,20 +212,24 @@ void SFD::getDetectResult(vector<vector<Rect> > *rects, vector<vector<float> > *
 void SFD::forwardNet(const std::vector<cv::Mat>& imgs)
 {
 
-    Blob<float>* input_layer = m_ptrNet->input_blobs()[0];
-    input_layer->Reshape(imgs.size(), m_numChannels, m_inputGeometry.height, m_inputGeometry.width);
-    m_ptrNet->Reshape();
-
     std::vector<cv::Mat> input_data;
     wrapInputLayer(&input_data);
 
     for (int i = 0; i < imgs.size(); i++)
     {
         //resize img and normalize
-        Mat normalizedImg;
-        preprocess(imgs[i], normalizedImg);
-        // set data to net and do forward
 
+        Mat normalizedImg = imgs[i];
+        // TODO: 对输入图像的预处理在detect调用之前做
+        //preprocess(imgs[i], normalizedImg);
+
+#ifdef ENABLE_CHECK
+        CHECK( normalizedImg.size() == m_inputGeometry ) << \
+                "input image size must be " << m_inputGeometry.width << " x " << m_inputGeometry.height ;
+        CHECK( normalizedImg.type() == CV_32FC3 ) << "input image type must be CV_32FC3";
+        CHECK( normalizedImg.channels() == m_numChannels ) << "input image channel must be " << m_numChannels;
+#endif
+        // set data to net and do forward
         std::vector<cv::Mat>tmp_channls(3);
         tmp_channls.assign(input_data.begin() + i*m_numChannels, input_data.begin() + (i + 1)*m_numChannels);
         split(normalizedImg, tmp_channls);
@@ -244,12 +258,14 @@ void SFD::wrapInputLayer(std::vector<cv::Mat>* input_channels)
     }
 }
 
-void SFD::preprocess(const cv::Mat &img, cv::Mat& processedImg) {
+void SFD::preprocess(const cv::Mat&img,  cv::Mat& processedImg) {
 
     //计算图像缩放尺度
     cv::Mat sample_resized;
-    cv::resize(img, sample_resized, m_inputGeometry, 0, 0);
+    cv::Size normalizedSize= Size(processedImg.cols, processedImg.rows);
+    cv::Mat meanImg = Mat(normalizedSize, CV_32FC3, m_meanVector );
+    cv::resize(img, sample_resized, normalizedSize, 0, 0);
     sample_resized.convertTo(sample_resized, CV_32FC3);
-    cv::subtract(sample_resized, m_meanImg, processedImg);
+    cv::subtract(sample_resized, meanImg, processedImg);
 
 }

@@ -29,10 +29,11 @@ LIBS += /usr/local/lib/libopencv_*.so
 LIBS += -lcaffe -lcurand -lcudart -lcublas \
         -lglog -lgflags -lboost_system
 
+ubuntu_lirui{
 #caffe
 INCLUDEPATH += /home/lirui/packages/caffe_ssd/include
 LIBS += -L/home/lirui/packages/caffe_ssd/build/lib
-
+}
 
 #cuda
 INCLUDEPATH += /usr/local/cuda/include

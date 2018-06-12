@@ -11,34 +11,43 @@
 #define calTime(start, end) ( (1000000*(end.tv_sec-start.tv_sec) + end.tv_usec-start.tv_usec) * 1.0 / 1000 )
 
 #endif
+/**
+ * @brief The SFD class
+ * @note 深度定制for AIStreamer
+ */
 
 class SFD {
 
 public:
 
-    /** @overload
-     * @param modelFile .prototxt file
-     * @param weightFile .caffemodel file
-     * @param confThresh
-     * @param maxSide
+    /**
+     * @note 必须显示调用init方法
      */
-    SFD(const std::string modelFile, const std::string weightFile, float confThresh=0.8, int maxSide=480);
-
-    /** @overload
-     * @param modelsPath path that contains the predefied model file (SFD_deploy.prototxt)
-     *          and trained weights file (SFD_weights.caffemodel)
-     * @param confThresh confidence thresh when output face bbox.
-     *          ie., only output bboxes whose confidence is larger than confThresh, default is 0.8
-     * @param maxSide the longest side when feed image to the net
-     */
-    SFD(const std::string &modelsPath, float confThresh=0.8, int maxSide=480);
+    SFD(){}
 
     ~SFD(){}
+
+    void init(const std::string &modelsPath, const cv::Size imgSize, const int batchSize=1, const float confThresh=0.8);
+
+    /**
+     * @brief init 初始化，使用SFD()无参构造时必须显示调用该方法
+     * @param modelFile .prototxt
+     * @param weightFile .caffemodel
+     * @param imgSize 归一化图像尺寸
+     * @param batchSize 一次处理的图像个数
+     * @param confThresh 阈值，影响检测框的准确度，默认直0.8
+     */
+    void init(const std::string modelFile, const std::string weightFile,
+              const cv::Size imgSize, const int batchSize=1, const float confThresh=0.8);
 
     /**
      * @brief detect 检测人脸
      * @param img input picture to locate faces
      * @param rects output the pixel boundingbox Rect of each faces on @em img
+     * @note 调用之前必须实现对img的预处理，参考preprocess
+     * resize，转为CV_32FC3, 减去均值,
+     * m_meanImg = Mat(m_inputGeometry, CV_32FC3, cv::Scalar(104,117,123) );
+     *
      */
     void detect(const cv::Mat& img, std::vector<cv::Rect>& rects);
 
@@ -63,7 +72,18 @@ public:
      * @param rectsBatch
      * @param confidencesBatch output 一组每张图片检测到的boundingbox置信概率列表，其size与 @em imgBatch.size() 相等
      */
-    void detect(const std::vector<cv::Mat>& imgBatch, std::vector<std::vector<cv::Rect> >& rectsBatch, std::vector<std::vector<float> >& confidencesBatch);
+    void detect(const std::vector<cv::Mat>& imgBatch, std::vector<std::vector<cv::Rect> >& rectsBatch,
+                std::vector<std::vector<float> >& confidencesBatch);
+
+    /**
+     * @brief preprocess 对原始图片按照进行预处理，包括resize，resize，转为CV_32FC3, 减去均值
+     * @param img input
+     * @param inputSize 归一化尺寸，必须与init时设置的尺寸一致
+     * @param processedImg output,size
+     */
+    static void preprocess(const cv::Mat& img, cv::Mat& processedImg);
+
+    static cv::Scalar m_meanVector;
 
 private:
 
@@ -75,11 +95,13 @@ private:
 
     void wrapInputLayer(std::vector<cv::Mat>* input_channels);
 
-    void preprocess(const cv::Mat& img, cv::Mat& processedImg);
-
     boost::shared_ptr<caffe::Net<float> > m_ptrNet;
     cv::Size m_inputGeometry;
-    cv::Mat m_meanImg;
+
+    /**
+     * @brief m_batchSize 批处理时一次接收的图片数
+     */
+    int m_batchSize;
     int m_maxInSide;
     int m_numChannels;
     float m_fConfThresh;
