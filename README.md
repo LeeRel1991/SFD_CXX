@@ -17,17 +17,22 @@
 
 ## 使用
 * 安装caffe及其依赖
+
 http://gitlab.bmi/VisionAI/soft/caffe/tree/bmi-beta
 
 * 配置环境
+
 INCLUDEPATH+=$CAFFE_CODE_DIR/include
+
 LIBS += -L$CAFFE_CODE_DIR/build/lib
+
 LIBS+=-lcaffe  -lcurand -lcudart -lcublas \
         -lglog -lgflags -lboost_system
 
 * 调用
+
 引用.h, .cpp
-```C++
+```c++
 #include "sfd.h"
 #include <opencv2/opencv.hpp>
 float confThresh=0.8;
