@@ -85,9 +85,9 @@ int main(int argc, char *argv[])
                 weightFile = argv[i+1];
             }
 
+        }
             detector->init(modelFile, weightFile, normalizedSize, batchSize, confThresh );
 
-        }
     }
 
 
