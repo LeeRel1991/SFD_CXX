@@ -25,9 +25,17 @@ public:
      */
     SFD(){}
 
+    /** @overload
+     * @param modelFile .prototxt file
+     * @param weightFile .caffemodel file
+     * @param confThresh
+     * @param maxSide
+     */
+   
     ~SFD(){}
 
-    void init(const std::string &modelsPath, const cv::Size imgSize, const int batchSize=1, const float confThresh=0.8);
+    void init(const std::string &modelsPath, const cv::Size imgSize,
+              const int batchSize=1, const int gpuDevice=0, const float confThresh=0.8);
 
     /**
      * @brief init 初始化，使用SFD()无参构造时必须显示调用该方法
@@ -37,8 +45,8 @@ public:
      * @param batchSize 一次处理的图像个数
      * @param confThresh 阈值，影响检测框的准确度，默认直0.8
      */
-    void init(const std::string modelFile, const std::string weightFile,
-              const cv::Size imgSize, const int batchSize=1, const float confThresh=0.8);
+    void init(const std::string modelFile, const std::string weightFile, const cv::Size imgSize,
+              const int batchSize=1, const int gpuDevice=0, const float confThresh=0.8);
 
     /**
      * @brief detect 检测人脸
@@ -63,8 +71,8 @@ public:
      * @brief detect detect face on several pictures once a time, also called batch detect
      * @param imgBatch input 一组待检测图片列表
      * @param rectsBatch output 一组每张图片检测到的boundingbox列表，其size与 @em imgBatch.size() 相等
-     */
-    void detect(const std::vector<cv::Mat>& imgBatch, std::vector<std::vector<cv::Rect> >& rectsBatch);
+     */ 
+    void detect(const std::vector<cv::Mat>& imgBatch, std::vector<std::vector<cv::Rect> > &rectsBatch);
 
     /**
      * @brief detect
@@ -87,11 +95,13 @@ public:
 
 private:
 
-    void initNet(const std::string model_file, const std::string weights_file);
+    void initNet(const std::string model_file, const std::string weights_file, const int gpuDevide);
 
     void forwardNet(const std::vector<cv::Mat>& imgs);
 
-    void getDetectResult(std::vector<std::vector<cv::Rect> >*rects, std::vector<std::vector<float> >* confidences);
+    void getDetectResult(std::vector<std::vector<cv::Rect> >& rects);
+
+    void getConfidences(std::vector<std::vector<float> >& confidences);
 
     void wrapInputLayer(std::vector<cv::Mat>* input_channels);
 

@@ -38,8 +38,8 @@ LIBS += -lcaffe -lcurand -lcudart -lcublas \
 
 ubuntu_lirui{
 #caffe
-INCLUDEPATH += /home/lirui/packages/caffe_ssd/include
-LIBS += -L/home/lirui/packages/caffe_ssd/build/lib
+INCLUDEPATH += /home/lirui/packages/libcaffe/include
+LIBS += -L/home/lirui/packages/libcaffe/lib
 }
 
 #cuda
