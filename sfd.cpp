@@ -7,33 +7,38 @@ using namespace cv;
 #define DEFAULT_HEIGHT 1080
 #define DEFAULT_WIDTH 1920
 
-SFD::SFD(const std::string &modelsPath, float confThresh, int maxSide):
+#define badBbox(result)   (result[0]==-1 || result[2]< m_fConfThresh)
+
+
+SFD::SFD(const std::string &modelsPath, const int gpuDevice, float confThresh, int maxSide):
     m_fConfThresh(confThresh),
     m_maxInSide(maxSide)
 {
     string modelName = "SFD_deploy.prototxt";
     string weightName = "SFD_weights.caffemodel";
-    if( modelsPath[modelsPath.size() - 1 ] != '/' )
-    {
-        initNet(modelsPath + "/" + modelName, modelsPath + "/" + weightName);
-    }
+    if( modelsPath[modelsPath.size() - 1 ] != '/' )   
+        initNet(modelsPath + "/" + modelName, modelsPath + "/" + weightName, gpuDevice);    
     else
-        initNet(modelsPath + modelName, modelsPath + weightName);
+        initNet(modelsPath + modelName, modelsPath + weightName, gpuDevice);
+
 
 }
 
-SFD::SFD(const string modelFile, const string weightFile, float confThresh, int maxSide):
+
+SFD::SFD(const string modelFile, const string weightFile, const int gpuDevice, float confThresh, int maxSide):
     m_fConfThresh(confThresh),
     m_maxInSide(maxSide)
 {
-    initNet(modelFile, weightFile);
+    initNet(modelFile, weightFile, gpuDevice);
 }
 
 
-void SFD::initNet(const string model_file, const string weights_file)
+
+void SFD::initNet(const string model_file, const string weights_file, const int gpuDevice)
 {
 #ifndef CPU_ONLY
     Caffe::set_mode(Caffe::GPU);
+    Caffe::SetDevice(gpuDevice);
 #else
     Caffe::set_mode(Caffe::CPU);
 #endif
@@ -54,58 +59,39 @@ void SFD::initNet(const string model_file, const string weights_file)
 
 void SFD::detect(const Mat& img, vector<Rect >& rects)
 {
-#ifdef DEBUG_TIME
-    struct timeval st_tm, end_tm;
-    static float total_time = 0.0;
-    gettimeofday(&st_tm, NULL);
-#endif
-    forwardNet(img);
-
-#ifdef DEBUG_TIME
-    gettimeofday(&end_tm, NULL);
-    total_time = calTime( st_tm, end_tm);
-    std::cerr << "forward time: " << total_time << std::endl;
-#endif
-
-    vector<vector<Rect> > rectsBatch(1, rects);
-    getDetectResult(&rectsBatch, NULL);
-
-#ifdef DEBUG_TIME
-    gettimeofday(&end_tm, NULL);
-    total_time = calTime( st_tm, end_tm);
-    std::cerr << "total time: " << total_time << std::endl;
-#endif
+    vector<Mat> imgBatch(1, img);
+    vector<vector<Rect> > rectsBatch;
+    detect(imgBatch, rectsBatch);
+    rects.assign( rectsBatch[0].begin(), rectsBatch[0].end());
 }
 
 void SFD::detect(const Mat& img, vector<Rect>& rects, vector<float>& confidences)
 {
-#ifdef DEBUG_TIME
-    struct timeval st_tm, end_tm;
-    static float total_time = 0.0;
-    gettimeofday(&st_tm, NULL);
-#endif
 
-    vector<Mat> imgs(1, img);
-    forwardNet(imgs);
+    detect(img, rects);
 
-#ifdef DEBUG_TIME
-    gettimeofday(&end_tm, NULL);
-    total_time = calTime( st_tm, end_tm);
-    std::cerr << "forward time: " << total_time << std::endl;
-#endif
+    vector<vector<float> > confBatch(1);
 
-    vector<vector<Rect> > rectsBatch(1, rects);
-    vector<vector<float> > confidencesBatch(1, confidences);
-    getDetectResult(&rectsBatch, &confidencesBatch );
+    getConfidences(confBatch);
+    confidences.assign( confBatch[0].begin(), confBatch[0].end());
 
-#ifdef DEBUG_TIME
-    gettimeofday(&end_tm, NULL);
-    total_time = calTime( st_tm, end_tm);
-    std::cerr << "total time: " << total_time << std::endl;
-#endif
 }
 
-void SFD::detect(const std::vector<cv::Mat>& imgBatch, std::vector<std::vector<cv::Rect> >& rectsBatch)
+
+void SFD::detect(const std::vector<cv::Mat>& imgBatch, std::vector<std::vector<cv::Rect> >& rectsBatch,
+                 std::vector<std::vector<float> >& confidencesBatch)
+{
+
+    detect(imgBatch, rectsBatch);
+
+    if(confidencesBatch.empty())
+        confidencesBatch.resize(imgBatch.size());
+
+    getConfidences(confidencesBatch);
+
+}
+
+void SFD::detect(const std::vector<cv::Mat>& imgBatch, std::vector<std::vector<Rect> > &rectsBatch)
 {
 #ifdef DEBUG_TIME
     struct timeval st_tm, end_tm;
@@ -121,13 +107,10 @@ void SFD::detect(const std::vector<cv::Mat>& imgBatch, std::vector<std::vector<c
 #endif
 
     // 初始化每个img对应的输出
-    for(int img_id = 0; img_id < imgBatch.size(); ++img_id)
-    {
-        vector<Rect> faces_per_img;
-        rectsBatch.push_back(faces_per_img);
-    }
+    if(rectsBatch.size()!=imgBatch.size())
+        rectsBatch.resize(imgBatch.size());
 
-    getDetectResult(&rectsBatch, NULL);
+    getDetectResult(rectsBatch);
 
 #ifdef DEBUG_TIME
     gettimeofday(&end_tm, NULL);
@@ -137,41 +120,7 @@ void SFD::detect(const std::vector<cv::Mat>& imgBatch, std::vector<std::vector<c
 }
 
 
-void SFD::detect(const std::vector<cv::Mat>& imgBatch, std::vector<std::vector<cv::Rect> >& rectsBatch, std::vector<std::vector<float> >& confidencesBatch)
-{
-#ifdef DEBUG_TIME
-    struct timeval st_tm, end_tm;
-    static float total_time = 0.0;
-    gettimeofday(&st_tm, NULL);
-#endif
-    forwardNet(imgBatch);
-
-#ifdef DEBUG_TIME
-    gettimeofday(&end_tm, NULL);
-    total_time = calTime( st_tm, end_tm);
-    std::cerr << "forward time: " << total_time << std::endl;
-#endif
-
-    // 初始化每个img对应的输出
-    for(int img_id = 0; img_id < imgBatch.size(); ++img_id)
-    {
-        vector<Rect> faces_per_img;
-        rectsBatch.push_back(faces_per_img);
-
-        vector<float> confidence_per_img;
-        confidencesBatch.push_back(confidence_per_img);
-    }
-
-    getDetectResult(&rectsBatch, &confidencesBatch);
-
-#ifdef DEBUG_TIME
-    gettimeofday(&end_tm, NULL);
-    total_time = calTime( st_tm, end_tm);
-    std::cerr << "total time: " << total_time << std::endl;
-#endif
-}
-
-void SFD::getDetectResult(vector<vector<Rect> > *rects, vector<vector<float> > *confidences)
+void SFD::getDetectResult(vector<vector<Rect> >& rects)
 {
 
     /* Copy the output layer to a std::vector */
@@ -183,7 +132,7 @@ void SFD::getDetectResult(vector<vector<Rect> > *rects, vector<vector<float> > *
     for(int i=0; i<num_det; ++i, result +=7 )
     {
         int img_id = result[0];
-        if(result[0]==-1 || result[2]< m_fConfThresh)
+        if(badBbox(result))
             continue;
 
         int x1 = static_cast<int>(result[3] * DEFAULT_WIDTH);
@@ -191,17 +140,31 @@ void SFD::getDetectResult(vector<vector<Rect> > *rects, vector<vector<float> > *
         int x2 = static_cast<int>(result[5] * DEFAULT_WIDTH);
         int y2 = static_cast<int>(result[6] * DEFAULT_HEIGHT);
         Rect rect(x1, y1, x2-x1, y2-y1);
-        (*rects)[img_id].push_back(rect);
-        if(confidences)
-            (*confidences)[img_id].push_back(result[2]);
-
+        rects[img_id].push_back(rect);
     }
 
 }
 
-void SFD::forwardNet(const std::vector<cv::Mat>& imgs)
+void SFD::getConfidences(std::vector<std::vector<float> > &confidences)
 {
 
+    /* Copy the output layer to a std::vector */
+    Blob<float>* output_layer = m_ptrNet->output_blobs()[0];
+    const float* result = output_layer->cpu_data();
+    const int num_det = output_layer->height();
+
+
+    for(int i=0; i<num_det; ++i, result +=7 )
+    {
+        int img_id = result[0];
+        if(badBbox(result))
+            continue;
+        confidences[img_id].push_back(result[2]);
+    }
+}
+
+void SFD::forwardNet(const std::vector<cv::Mat>& imgs)
+{
     Blob<float>* input_layer = m_ptrNet->input_blobs()[0];
     input_layer->Reshape(imgs.size(), m_numChannels, m_inputGeometry.height, m_inputGeometry.width);
     m_ptrNet->Reshape();
