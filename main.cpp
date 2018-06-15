@@ -84,9 +84,8 @@ int main(int argc, char *argv[])
                 weightFile = argv[i+1];
             }
 
-            detector= new SFD(modelFile, weightFile, confThresh, maxSide );
-
         }
+        detector= new SFD(modelFile, weightFile, confThresh, maxSide );
     }
 
 
