@@ -48,3 +48,6 @@ LIBS += -L/usr/local/cuda/lib64
 
 HEADERS += \
     sfd.h
+
+DISTFILES += \
+    README.md

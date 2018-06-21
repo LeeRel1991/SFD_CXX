@@ -23,7 +23,7 @@ public:
     /**
      * @note 必须显示调用init方法
      */
-    SFD(){}
+    SFD();
 
     /** @overload
      * @param modelFile .prototxt file
@@ -67,14 +67,14 @@ public:
      */
     void detect(const cv::Mat& img, std::vector<cv::Rect>& rects, std::vector<float>& confidences);
 
-    /**
+    /** @overload
      * @brief detect detect face on several pictures once a time, also called batch detect
-     * @param imgBatch input 一组待检测图片列表
+     * @param imgBatch input Mat 一组待检测图片列表
      * @param rectsBatch output 一组每张图片检测到的boundingbox列表，其size与 @em imgBatch.size() 相等
      */ 
     void detect(const std::vector<cv::Mat>& imgBatch, std::vector<std::vector<cv::Rect> > &rectsBatch);
 
-    /**
+    /** @overload
      * @brief detect
      * @param imgBatch
      * @param rectsBatch
@@ -82,6 +82,15 @@ public:
      */
     void detect(const std::vector<cv::Mat>& imgBatch, std::vector<std::vector<cv::Rect> >& rectsBatch,
                 std::vector<std::vector<float> >& confidencesBatch);
+
+
+    /** @overload
+     * @brief detect GpuMat接口
+     * @param imgBatch input GpuMat 一组待检测图片列表
+     * @param rectsBatch
+     */
+    void detect(const std::vector<cv::cuda::GpuMat>& imgBatch, std::vector<std::vector<cv::Rect> > &rectsBatch);
+
 
     /**
      * @brief preprocess 对原始图片按照进行预处理，包括resize，resize，转为CV_32FC3, 减去均值
@@ -98,6 +107,8 @@ private:
     void initNet(const std::string model_file, const std::string weights_file, const int gpuDevide);
 
     void forwardNet(const std::vector<cv::Mat>& imgs);
+
+    void forwardNet(const std::vector<cv::cuda::GpuMat>& imgs);
 
     void getDetectResult(std::vector<std::vector<cv::Rect> >& rects);
 

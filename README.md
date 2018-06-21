@@ -37,12 +37,29 @@ LIBS+=-lcaffe  -lcurand -lcudart -lcublas \
 #include <opencv2/opencv.hpp>
 float confThresh=0.8;
 int batchSize = 4;
-cv::Size normalizedSize = cv::Size(480, 270);
+cv::Size inpSize = cv::Size(480, 270);
 detector = new SFD();
 detector->init("SFD_deploy.prototxt", "SFD_weights.caffemodel", normalizedSize, batchSize, confThresh);
 
 vector<Mat> imgBatch;
 vector<vector<Rect> > facesBatch;
-detector->detect(imgBatch, facesBatch, scoresBatch);  //目标检测,同时保存每个框的置信度
+vector<cuda::GpuMat> imgGpuBatch; //GpuMat接口
+
+for(int i=0; i<batchSize; i++)
+{
+    Mat processedImg = Mat(inpSize.height, inpSize.width, CV_32FC3);
+
+    //note 预处理
+    SFD::preprocess(imgFrame, processedImg);
+    imgBatch.push_back(processedImg);
+    cuda::GpuMat gpuImg;
+    gpuImg.upload(processedImg);
+    imgGpuBatch.push_back(gpuImg);
+}
+
+
+//detector->detect(imgBatch, facesBatch, scoresBatch);  //目标检测,同时保存每个框的置信度
+detector->detect(imgGpuBatch, facesBatch); //GpuMat接口
+
 
 ```

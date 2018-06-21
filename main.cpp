@@ -16,10 +16,11 @@ void sigleVideo()
 // batch detect. conduct detection on several images once a time
 void drawDetectResults(Mat& img, vector<Rect>& bboxes, vector<float>& scores)
 {
-
+    if (scores.empty())
+        scores.resize(bboxes.size());
     auto itBbox = bboxes.cbegin();
     auto itScore = scores.cbegin();
-    for ( ; itBbox!=bboxes.cend(); itBbox++, itScore++  )
+    for ( ; itBbox!=bboxes.cend(); itBbox++,itScore++)
     {
         rectangle(img, *itBbox, Scalar(0,0,255),2);   //画出矩形框
         stringstream stream;
@@ -32,6 +33,9 @@ void drawDetectResults(Mat& img, vector<Rect>& bboxes, vector<float>& scores)
 void drawDetectResults(vector<Mat>& imgBatch, vector<vector<Rect> >& rectsBatch,
                        vector<vector<float> >& scoresBatch)
 {
+    if (scoresBatch.empty())
+        scoresBatch.resize(imgBatch.size());
+
     cv::Mat meanImg = Mat(imgBatch[0].rows, imgBatch[0].cols, CV_32FC3, SFD::m_meanVector );
     for(int id = 0; id < imgBatch.size(); ++id)
     {
@@ -69,7 +73,7 @@ int main(int argc, char *argv[])
     int gpuID = atoi(argv[6]);
     double im_shrink = double(maxSide) / DEFAULT_WIDTH;
     Size inpSize = Size(DEFAULT_WIDTH * im_shrink, DEFAULT_HEIGHT * im_shrink);
-    int batchSize = 2;
+    int batchSize = 3;
     if(atoi(argv[2]))
         detector->init(modelPath, inpSize, batchSize, gpuID, confThresh);
     else
@@ -111,6 +115,7 @@ int main(int argc, char *argv[])
         vector<vector<Rect> > facesBatch;
         vector<vector<float> > scoresBatch;
         vector<Mat> imgBatch;
+        vector<cuda::GpuMat> imgGpuBatch;
         //imgBatch.push_back(imgFrame);
         //imgBatch.push_back(imgFrame2);
         for(int i=0; i<batchSize; i++)
@@ -118,6 +123,9 @@ int main(int argc, char *argv[])
             Mat processedImg = Mat(inpSize.height, inpSize.width, CV_32FC3);
             SFD::preprocess(imgFrame, processedImg);
             imgBatch.push_back(processedImg);
+            cuda::GpuMat gpuImg;
+            gpuImg.upload(processedImg);
+            imgGpuBatch.push_back(gpuImg);
         }
 
 #ifdef DEBUG_TIME
@@ -127,18 +135,17 @@ int main(int argc, char *argv[])
         gettimeofday(&st_tm, NULL);
 #endif
 
-        detector->detect(imgBatch, facesBatch, scoresBatch);  //目标检测,同时保存每个框的置信度
+        //detector->detect(imgBatch, facesBatch, scoresBatch);  //目标检测,同时保存每个框的置信度
+        detector->detect(imgGpuBatch, facesBatch);
 
 
 #ifdef DEBUG_TIME
         gettimeofday(&end_tm, NULL);
         total_time = calTime( st_tm, end_tm);
-        std::cout << "detect time: " << total_time << std::endl;
+        std::cout << "detect time: " << total_time << "ms" << std::endl;
 #endif
-
+        scoresBatch.resize((size_t)batchSize);
         drawDetectResults(imgBatch, facesBatch, scoresBatch);
-//        drawDetectResults(imgFrame, tmpRects, tmpScores);
-//        imshow("im", imgFrame);
 
         waitKey(1);
 
