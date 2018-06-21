@@ -104,48 +104,19 @@ void SFD::detect(const std::vector<cv::Mat>& imgBatch, std::vector<std::vector<c
 
 void SFD::detect(const std::vector<cv::Mat>& imgBatch, std::vector<std::vector<Rect> > &rectsBatch)
 {
-    CHECK(imgBatch.size() == m_batchSize) << "input img num must be = " << m_batchSize << endl;
-#ifdef DEBUG_TIME
-    struct timeval st_tm, end_tm;
-    static float total_time = 0.0;
-    gettimeofday(&st_tm, NULL);
-#endif
+    // 方式1 转为GpuMat
+    vector<cuda::GpuMat> imgGpuBatch;
+    for(auto &img : imgBatch)
+    {
+        cuda::GpuMat imgGpu;
+        imgGpu.upload(img);
+        imgGpuBatch.push_back(imgGpu);
+    }
+
+    detect(imgGpuBatch, rectsBatch);
 
 
-//    // 方式1 转为GpuMat
-//    vector<cuda::GpuMat> imgGpuBatch;
-//    for(auto &img : imgBatch)
-//    {
-//        cuda::GpuMat imgGpu;
-//        imgGpu.upload(img);
-//        imgGpuBatch.push_back(imgGpu);
-//    }
-
-//    detect(imgGpuBatch, rectsBatch);
-
-
-    // 方式2 cpu->cpu
-    // core 核心程序
-    forwardNet(imgBatch);
-
-#ifdef DEBUG_TIME
-    gettimeofday(&end_tm, NULL);
-    total_time = calTime( st_tm, end_tm);
-    std::cerr << "forward time: " << total_time << std::endl;
-#endif
-
-    // 获取检测bbox
-    // 初始化每个img对应的输出
-    if(rectsBatch.size()!=imgBatch.size())
-        rectsBatch.resize(imgBatch.size());
-
-    getDetectResult(rectsBatch);
-
-#ifdef DEBUG_TIME
-    gettimeofday(&end_tm, NULL);
-    total_time = calTime( st_tm, end_tm);
-    std::cerr << "total time: " << total_time << std::endl;
-#endif
+    // 方式2 cpu->cpu see git commit@4fac826
 }
 
 void SFD::detect(const std::vector<cv::cuda::GpuMat>& imgBatch, std::vector<std::vector<cv::Rect> > &rectsBatch)
@@ -223,66 +194,6 @@ void SFD::getConfidences(std::vector<std::vector<float> > &confidences)
             continue;
         confidences[img_id].push_back(result[2]);
     }
-}
-
-void SFD::forwardNet(const std::vector<cv::Mat>& imgs)
-{
-    // 两种实现方式，主要是数据拷贝的方式不同
-    // 方式1 cudaMemcpy  将cpu数据拷贝到caffe的inputgpu指向的内存, 类似GpuMat接口
-    caffe::Blob<float>* input_layer = m_ptrNet->input_blobs()[0];
-    float* input_data_gpu = input_layer->mutable_gpu_data();
-
-    size_t data_len = m_inputGeometry.width * m_inputGeometry.height ;
-    for(auto iter = imgs.cbegin(); iter!=imgs.cend(); iter++)
-    {
-        // Note: 对输入图像的预处理在detect调用之前做
-        // preprocess(imgs[i], normalizedImg);
-
-#ifdef ENABLE_CHECK
-        checkImgProp((*iter));
-#endif
-        // set data to net and do forward
-        std::vector<cv::Mat>tmp_channls(m_numChannels);
-
-        // Note: split 480x270 3通道约0.3-0.4ms
-        cv::split(*iter, tmp_channls);
-
-        // 数据拷贝
-        for(uint j = 0; j<tmp_channls.size(); ++j)
-        {
-            cv::Mat channel = tmp_channls.at(j);
-            // Note: 拷贝一张单通道480x270图片从cpu到gpu需0.12ms
-            cudaMemcpy(input_data_gpu,channel.data, data_len*(sizeof(float)),cudaMemcpyHostToDevice);
-            input_data_gpu+=data_len;
-        }
-
-    }
-    // end 方式1
-
-    //方式2 caffe's example 方式 先用wrap将vector指向caffe的cpudata内存，再将图片进行通道分裂，实现cpu数据的赋值
-    std::vector<cv::Mat> input_data;
-    wrapInputLayer(&input_data);
-
-    int i = 0;
-    for(auto iter = imgs.cbegin(); iter!=imgs.cend(); iter++, i++)
-    {
-        // Note: 对输入图像的预处理在detect调用之前做
-        //preprocess(imgs[i], normalizedImg);
-
-#ifdef ENABLE_CHECK
-        checkImgProp((*iter));
-#endif
-        // wrap 已经实现了input_data和caffe的input内存绑定，此处无需拷贝
-        std::vector<cv::Mat>tmp_channls(3);
-        tmp_channls.assign(input_data.begin() + i*m_numChannels, input_data.begin() + (i + 1)*m_numChannels);
-        // Note: split 480x270 3通道约0.3-0.4ms
-        split(*iter, tmp_channls);
-   }
-    // end 方式2
-
-    // caffe网络输入数据已设置好，forward将数据从bootom到top各层计算
-    m_ptrNet->Forward();
-
 }
 
 void SFD::forwardNet(const std::vector<cuda::GpuMat> &imgs)

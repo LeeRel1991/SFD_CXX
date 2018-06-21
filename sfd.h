@@ -106,8 +106,6 @@ private:
 
     void initNet(const std::string model_file, const std::string weights_file, const int gpuDevide);
 
-    void forwardNet(const std::vector<cv::Mat>& imgs);
-
     void forwardNet(const std::vector<cv::cuda::GpuMat>& imgs);
 
     void getDetectResult(std::vector<std::vector<cv::Rect> >& rects);
